@@ -40,7 +40,7 @@ namespace TeamSpeak3QueryApi.Net
         private readonly ConcurrentDictionary<string, List<Action<NotificationData>>> _subscriptions = new ConcurrentDictionary<string, List<Action<NotificationData>>>();
         internal Stopwatch Idle = new Stopwatch();
 
-        private Timer Timer;
+        private Task QueueCkecker;
 
         #region Ctors
 
@@ -68,12 +68,14 @@ namespace TeamSpeak3QueryApi.Net
             Port = port;
             IsConnected = false;
             Client = new TcpClient();
-            Timer = new Timer(
-                callback: async (o) => { await CheckQueue().ConfigureAwait(false); },
-                state: null,
-                dueTime: TimeSpan.FromSeconds(2),
-                period: TimeSpan.FromMilliseconds(50)
-            );
+            QueueCkecker = Task.Run(async () =>
+            {
+                PeriodicTimer periodicTimer = new PeriodicTimer(TimeSpan.FromMilliseconds(50));
+                while (await periodicTimer.WaitForNextTickAsync())
+                {
+                    await CheckQueue();
+                }
+            });
         }
 
         #endregion
@@ -452,7 +454,7 @@ namespace TeamSpeak3QueryApi.Net
         {
             if (disposing)
             {
-                Timer?.Dispose();
+                QueueCkecker?.Dispose();
                 _cts?.Cancel();
                 _cts?.Dispose();
                 Client?.Dispose();
