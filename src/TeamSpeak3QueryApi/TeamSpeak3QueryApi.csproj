@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard1.3</TargetFramework>
+    <TargetFramework>net6.0</TargetFramework>
     <Authors>Niklas Mollenhauer</Authors>
     <Company />
     <Product />
