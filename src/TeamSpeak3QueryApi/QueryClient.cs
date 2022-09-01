@@ -36,9 +36,11 @@ namespace TeamSpeak3QueryApi.Net
         private StreamWriter _writer;
         private NetworkStream _ns;
         private CancellationTokenSource _cts;
-        private readonly Queue<QueryCommand> _queue = new Queue<QueryCommand>();
+        private readonly ConcurrentQueue<QueryCommand> _queue = new ConcurrentQueue<QueryCommand>();
         private readonly ConcurrentDictionary<string, List<Action<NotificationData>>> _subscriptions = new ConcurrentDictionary<string, List<Action<NotificationData>>>();
         internal Stopwatch Idle = new Stopwatch();
+
+        private Timer Timer;
 
         #region Ctors
 
@@ -66,6 +68,12 @@ namespace TeamSpeak3QueryApi.Net
             Port = port;
             IsConnected = false;
             Client = new TcpClient();
+            Timer = new Timer(
+                callback: async (o) => { await CheckQueue().ConfigureAwait(false); },
+                state: null,
+                dueTime: TimeSpan.FromSeconds(2),
+                period: TimeSpan.FromMilliseconds(50)
+            );
         }
 
         #endregion
@@ -143,12 +151,13 @@ namespace TeamSpeak3QueryApi.Net
                 toSend.Append(' ').Append(p.GetEscapedRepresentation());
 
             var d = new TaskCompletionSource<QueryResponseDictionary[]>();
+            d.Task.ContinueWith((o) => { this._currentCommand = null; });
 
             var newItem = new QueryCommand(cmd, ps.AsReadOnly(), options, d, toSend.ToString());
 
             _queue.Enqueue(newItem);
 
-            await CheckQueue().ConfigureAwait(false);
+            //await CheckQueue().ConfigureAwait(false);
 
             Idle.Restart(); //You've done something, so you're technically no longer idle.
 
@@ -377,6 +386,7 @@ namespace TeamSpeak3QueryApi.Net
                     var s = line.Trim();
                     if (s.StartsWith("error", StringComparison.OrdinalIgnoreCase))
                     {
+
                         Debug.Assert(_currentCommand != null);
 
                         var error = ParseError(s);
@@ -394,7 +404,7 @@ namespace TeamSpeak3QueryApi.Net
                         Debug.Assert(_currentCommand != null);
                         _currentCommand.RawResponse = s;
                         _currentCommand.ResponseDictionary = ParseResponse(s);
-                    }
+                    }                    
                 }
 
                 IsConnected = false;
@@ -405,10 +415,16 @@ namespace TeamSpeak3QueryApi.Net
         private QueryCommand _currentCommand;
         private async Task CheckQueue()
         {
-            if (_queue.Count > 0)
+            Debug.WriteLineIf(_queue.Any(), "Queue items: " + _queue.Count);
+
+            if (_currentCommand != null)
             {
-                _currentCommand = _queue.Dequeue();
-                Debug.WriteLine(_currentCommand.SentText);
+                return;
+            }
+
+            if(_queue.TryDequeue(out _currentCommand))
+            {
+                Debug.WriteLine("Sent: " + _currentCommand.SentText);
                 await _writer.WriteLineAsync(_currentCommand.SentText).ConfigureAwait(false);
                 await _writer.FlushAsync().ConfigureAwait(false);
             }
@@ -436,6 +452,7 @@ namespace TeamSpeak3QueryApi.Net
         {
             if (disposing)
             {
+                Timer?.Dispose();
                 _cts?.Cancel();
                 _cts?.Dispose();
                 Client?.Dispose();
