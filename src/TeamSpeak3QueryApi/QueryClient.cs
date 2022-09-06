@@ -419,7 +419,7 @@ namespace TeamSpeak3QueryApi.Net
         {
             Debug.WriteLineIf(_queue.Any(), "Queue items: " + _queue.Count);
 
-            if (_currentCommand != null)
+            if (!_queue.Any() || _currentCommand != null)
             {
                 return;
             }
@@ -429,6 +429,9 @@ namespace TeamSpeak3QueryApi.Net
                 Debug.WriteLine("Sent: " + _currentCommand.SentText);
                 await _writer.WriteLineAsync(_currentCommand.SentText).ConfigureAwait(false);
                 await _writer.FlushAsync().ConfigureAwait(false);
+
+                // We have send a command, reset the idle stopwatch
+                Idle.Restart();
             }
         }
 
